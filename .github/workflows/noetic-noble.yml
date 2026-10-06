@@ -1,5 +1,6 @@
-# Build ROS 1 Noetic for Ubuntu 24.04 on amd64 and arm64.
+# Build ROS 1 Noetic and Gazebo Classic for Ubuntu 24.04 on amd64 and arm64.
 # Focal calls the upstream metapackage ros-noetic-desktop-full. Noble does not publish it.
+# Noetic's package list does not compile against Gazebo, so the two builds run together.
 # This workflow is started by hand. Cloning the noetic branch and running ./bootstrap.sh stays separate.
 name: Noetic on Ubuntu 24.04
 
@@ -9,9 +10,14 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    # ubuntu:24.04 jobs default to sh. pipefail is a bash option.
+    shell: bash
+
 jobs:
-  build:
-    name: ${{ matrix.arch }}
+  ros:
+    name: noetic-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -25,10 +31,6 @@ jobs:
     container: ubuntu:24.04
     env:
       DEBIAN_FRONTEND: noninteractive
-    defaults:
-      run:
-        # This image runs job steps with sh. pipefail is a bash option.
-        shell: bash
     steps:
       - name: Install the tools needed to fetch this repo
         run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git sudo python3
@@ -41,19 +43,115 @@ jobs:
           printf '%s\n' 'builder ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/builder
           chmod 440 /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE/tree"
-          sudo -u builder env HOME=/home/builder ROS_BUILD_JOBS=4 \
+          sudo -u builder env HOME=/home/builder ROS_BUILD_JOBS=4 XGC2_SKIP_GAZEBO=1 \
             bash --noprofile --norc -c 'cd "$1" && exec ./bootstrap.sh' \
             bash "$GITHUB_WORKSPACE/tree"
-      - name: Package xgc2-ros-noetic
+      - name: Pack the Noetic prefix
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends dpkg-dev
-          sudo -u builder rm -rf \
+          rm -rf \
             "$GITHUB_WORKSPACE/tree/src" \
             "$GITHUB_WORKSPACE/tree/build" \
             "$GITHUB_WORKSPACE/tree/build_isolated" \
             "$GITHUB_WORKSPACE/tree/devel_isolated" \
             "$GITHUB_WORKSPACE/tree/.venv"
+          tar -C /opt/ros/noetic -czf "$GITHUB_WORKSPACE/ros-noetic.tar.gz" .
+      - name: Upload the Noetic prefix
+        uses: actions/upload-artifact@v4
+        with:
+          name: ros-prefix-${{ matrix.arch }}
+          path: ros-noetic.tar.gz
+          if-no-files-found: error
+
+  gazebo:
+    name: gazebo-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install the tools needed to fetch this repo
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git sudo python3
+      - name: Check out Gazebo Classic
+        run: |
+          set -euo pipefail
+          git clone --branch noetic --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" tree
+          git -C tree submodule update --init --depth 1 gazebo
+      - name: Build Gazebo Classic into /opt/ros/noetic/opt/gazebo
+        run: |
+          set -euo pipefail
+          id builder >/dev/null 2>&1 || useradd --create-home --shell /bin/bash builder
+          printf '%s\n' 'builder ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          mkdir -p /opt/ros/noetic/opt/gazebo
+          chown -R builder:builder "$GITHUB_WORKSPACE/tree" /opt/ros/noetic
+          sudo -u builder env HOME=/home/builder GAZEBO_BUILD_JOBS=4 \
+            XGC2_GAZEBO_PREFIX=/opt/ros/noetic/opt/gazebo \
+            bash --noprofile --norc -c 'cd "$1" && exec ./bootstrap.sh' \
+            bash "$GITHUB_WORKSPACE/tree/gazebo"
+      - name: Pack the Gazebo prefix
+        run: |
+          set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/tree/gazebo/gazebo"
+          tar -C /opt/ros/noetic/opt/gazebo -czf "$GITHUB_WORKSPACE/gazebo.tar.gz" .
+      - name: Upload the Gazebo prefix
+        uses: actions/upload-artifact@v4
+        with:
+          name: gazebo-prefix-${{ matrix.arch }}
+          path: gazebo.tar.gz
+          if-no-files-found: error
+
+  package:
+    name: package-${{ matrix.arch }}
+    needs: [ros, gazebo]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install packaging tools
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git sudo python3 dpkg-dev
+      - name: Check out the packaging scripts
+        run: |
+          set -euo pipefail
+          git clone --branch noetic --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" tree
+          git -C tree submodule update --init --depth 1 gazebo
+      - name: Download the Noetic prefix
+        uses: actions/download-artifact@v4
+        with:
+          name: ros-prefix-${{ matrix.arch }}
+          path: incoming/ros
+      - name: Download the Gazebo prefix
+        uses: actions/download-artifact@v4
+        with:
+          name: gazebo-prefix-${{ matrix.arch }}
+          path: incoming/gazebo
+      - name: Package xgc2-ros-noetic
+        run: |
+          set -euo pipefail
+          id builder >/dev/null 2>&1 || useradd --create-home --shell /bin/bash builder
+          mkdir -p /opt/ros/noetic/opt/gazebo
+          tar -C /opt/ros/noetic -xzf incoming/ros/ros-noetic.tar.gz
+          tar -C /opt/ros/noetic/opt/gazebo -xzf incoming/gazebo/gazebo.tar.gz
+          chown -R builder:builder /opt/ros/noetic "$GITHUB_WORKSPACE/tree"
           sudo -u builder env \
             HOME=/home/builder \
             XGC2_DEB_VERSION="1.0.0+noble.${GITHUB_RUN_NUMBER}" \
@@ -68,7 +166,7 @@ jobs:
 
   release:
     name: Publish both debs
-    needs: build
+    needs: package
     runs-on: ubuntu-24.04
     steps:
       - name: Download debs
@@ -85,7 +183,7 @@ jobs:
           printf '%s\n' \
             'Ubuntu 20.04 上同角色的官方包是 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。' \
             '' \
-            '这两个 deb 由干净的 Ubuntu 24.04 amd64 和 arm64 runner 从 `noetic` 分支编译而来，安装到 `/opt/ros/noetic`。Gazebo Classic 不在其中。' \
+            '这两个 deb 由干净的 Ubuntu 24.04 amd64 和 arm64 runner 并行编译 Noetic 和 Gazebo Classic 而来。Noetic 在 `/opt/ros/noetic`。Gazebo Classic 在 `/opt/ros/noetic/opt/gazebo`，不安装到 `/usr`。' \
             '' \
             '```bash' \
             'sudo apt install ./xgc2-ros-noetic_*_$(dpkg --print-architecture).deb' \

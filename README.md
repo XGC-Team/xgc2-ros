@@ -6,7 +6,7 @@ Ubuntu 24.04 上使用 ROS 的脚本仓库。Git 里只有工具脚本和源码�
 
 Ubuntu 20.04 上同角色的官方包叫 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。
 
-Actions 里的 “Noetic on Ubuntu 24.04” 可以手动触发。它在干净的 Ubuntu 24.04 上分别编译 amd64 和 arm64，并把 `xgc2-ros-noetic` 发到 [Releases](https://github.com/XGC-Team/xgc2-ros/releases)。Gazebo Classic 不在包里，因为 Ubuntu 24.04 没有 Gazebo 11。
+Actions 里的 “Noetic on Ubuntu 24.04” 可以手动触发。它在干净的 Ubuntu 24.04 上并行编译 Noetic 和 Gazebo Classic，各跑 amd64 和 arm64，再把两者打进 `xgc2-ros-noetic`，发到 [Releases](https://github.com/XGC-Team/xgc2-ros/releases)。Gazebo Classic 位于 `/opt/ros/noetic/opt/gazebo`，不安装到 `/usr`。`source /opt/ros/noetic/setup.bash` 之后使用这份 Gazebo。
 
 下载和本机架构一致的 deb：
 
@@ -22,11 +22,13 @@ source /opt/ros/noetic/setup.bash
 仓库可以克隆到任意路径。源码留在工作副本的 `src/`，Noetic 的编译结果安装到 `/opt/ros/noetic`。这条路和上面的 CI 互不替代。
 
 ```bash
-git clone -b noetic --single-branch https://github.com/XGC-Team/xgc2-ros.git ros/noetic
+git clone --recurse-submodules -b noetic --single-branch https://github.com/XGC-Team/xgc2-ros.git ros/noetic
 cd ros/noetic
 ./bootstrap.sh
 source env.bash
 ```
+
+`gazebo` 是子仓库 [xgc2-gazebo](https://github.com/XGC-Team/xgc2-gazebo) 的 `noble-gz11`。Noetic 的包名单不编译 Gazebo，所以两条构建可以并行。装好后 Gazebo Classic 在 `/opt/ros/noetic/opt/gazebo`。
 
 `./bootstrap.sh` 会用 sudo 安装编译工具链和系统库。编译最多 16 核。
 
