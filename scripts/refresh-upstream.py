@@ -50,6 +50,25 @@ EXTRA_REPOS = {
         }
     }
 }
+# The release version is not always a tag on the source repository.
+CHECKOUT_OVERRIDES = {
+    "noetic": {
+        # Upstream never tagged 2.0.2. This is the Noetic release of that version.
+        "gennodejs": {
+            "type": "git",
+            "url": "https://github.com/sloretz/gennodejs-release.git",
+            "version": "release/noetic/gennodejs/2.0.2-1",
+        },
+    },
+    "jazzy": {
+        # 2026.9.9 is published from the ROS 2 bloom repository, not mavlink-gbp-release.
+        "mavlink": {
+            "type": "git",
+            "url": "https://github.com/ros2-gbp/mavlink-gbp-release.git",
+            "version": "release/jazzy/mavlink/2026.9.9-1",
+        },
+    },
+}
 
 
 def read_names(path: Path) -> list[str]:
@@ -119,6 +138,61 @@ def resolve_version(url: str, version: str) -> str:
     raise RuntimeError(f"cannot resolve {url} @ {version}")
 
 
+def ref_exists(url: str, version: str) -> bool:
+    import subprocess
+
+    if len(version) == 40 and all(c in "0123456789abcdef" for c in version):
+        return True
+    for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
+        proc = subprocess.run(
+            ["git", "ls-remote", url, ref],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return True
+    return False
+
+
+def tag_aliases(version: str) -> list[str]:
+    aliases = [
+        f"v{version}",
+        f"ros-v{version}",
+        f"ros2_{version}",
+        f"upstream/{version}",
+    ]
+    parts = version.split(".")
+    if len(parts) == 3 and all(part.isdigit() for part in parts) and parts[2] == "0":
+        aliases.append(f"version_{int(parts[0]):02d}.{parts[1]}")
+    return aliases
+
+
+def repair_checkout_refs(distro: str, repositories: dict) -> list[str]:
+    changed = []
+    overrides = CHECKOUT_OVERRIDES.get(distro, {})
+    for name, spec in overrides.items():
+        if name not in repositories:
+            continue
+        repositories[name] = dict(spec)
+        changed.append(name)
+    for name, spec in repositories.items():
+        if name in overrides:
+            continue
+        version = str(spec.get("version") or "")
+        url = spec["url"]
+        if ref_exists(url, version):
+            continue
+        for alias in tag_aliases(version):
+            if ref_exists(url, alias):
+                spec["version"] = alias
+                changed.append(f"{name} -> {alias}")
+                break
+        else:
+            raise RuntimeError(f"{distro} {name} has no checkout ref for {version} at {url}")
+    return changed
+
+
 def apply_ros_o(repositories: dict) -> list[str]:
     with urllib.request.urlopen(ROS_ONE_URL, timeout=90) as response:
         overlay = yaml.safe_load(response.read().decode())["repositories"]
@@ -168,8 +242,11 @@ def main() -> int:
         replaced = apply_ros_o(repositories)
     for name, spec in EXTRA_REPOS.get(distro, {}).items():
         repositories[name] = spec
+    repaired = repair_checkout_refs(distro, repositories)
     write_repos(ROOT / "upstream.repos", repositories)
     print(f"wrote {len(repositories)} repositories", flush=True)
+    if repaired:
+        print("checkout refs: " + ", ".join(repaired), flush=True)
     if replaced:
         print("ROS-O pins: " + ", ".join(replaced), flush=True)
     return 0
