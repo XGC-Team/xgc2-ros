@@ -1,0 +1,101 @@
+# Build ROS 1 Noetic for Ubuntu 24.04 on amd64 and arm64.
+# Focal calls the upstream metapackage ros-noetic-desktop-full. Noble does not publish it.
+# This workflow is started by hand. Cloning the noetic branch and running ./bootstrap.sh stays separate.
+name: Noetic on Ubuntu 24.04
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    container: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install the tools needed to fetch this repo
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git sudo python3
+      - name: Check out the Noetic branch
+        run: git clone --branch noetic --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" tree
+      - name: Build Noetic into /opt/ros/noetic
+        run: |
+          set -euo pipefail
+          id builder >/dev/null 2>&1 || useradd --create-home --shell /bin/bash builder
+          printf '%s\n' 'builder ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/builder
+          chmod 440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE/tree"
+          sudo -u builder env HOME=/home/builder ROS_BUILD_JOBS=4 \
+            bash --noprofile --norc -c 'cd "$1" && exec ./bootstrap.sh' \
+            bash "$GITHUB_WORKSPACE/tree"
+      - name: Package xgc2-ros-noetic
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends dpkg-dev
+          sudo -u builder rm -rf \
+            "$GITHUB_WORKSPACE/tree/src" \
+            "$GITHUB_WORKSPACE/tree/build" \
+            "$GITHUB_WORKSPACE/tree/build_isolated" \
+            "$GITHUB_WORKSPACE/tree/devel_isolated" \
+            "$GITHUB_WORKSPACE/tree/.venv"
+          sudo -u builder env \
+            HOME=/home/builder \
+            XGC2_DEB_VERSION="1.0.0+noble.${GITHUB_RUN_NUMBER}" \
+            bash --noprofile --norc -c 'cd "$1" && exec ./scripts/package-deb.sh' \
+            bash "$GITHUB_WORKSPACE/tree"
+      - name: Upload the deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: xgc2-ros-noetic-${{ matrix.arch }}
+          path: tree/dist/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Publish both debs
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download debs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: xgc2-ros-noetic-*
+          path: dist
+          merge-multiple: true
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'Ubuntu 20.04 上同角色的官方包是 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。' \
+            '' \
+            '这两个 deb 由干净的 Ubuntu 24.04 amd64 和 arm64 runner 从 `noetic` 分支编译而来，安装到 `/opt/ros/noetic`。Gazebo Classic 不在其中。' \
+            '' \
+            '```bash' \
+            'sudo apt install ./xgc2-ros-noetic_*_$(dpkg --print-architecture).deb' \
+            'source /opt/ros/noetic/setup.bash' \
+            '```' \
+            '' \
+            '不要把 source 写进 shell 启动文件。本地克隆 `noetic` 分支后运行 `./bootstrap.sh` 仍然可以。' \
+            > notes.md
+          tag="noetic-noble-${GITHUB_RUN_NUMBER}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/*.deb --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" dist/*.deb \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Noetic for Ubuntu 24.04 (${GITHUB_RUN_NUMBER})" \
+              --notes-file notes.md
+          fi
