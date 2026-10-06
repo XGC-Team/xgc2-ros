@@ -49,6 +49,10 @@ repositories:
     type: git
     url: https://github.com/ros/filters.git
     version: 1.9.3
+  four_wheel_steering_msgs:
+    type: git
+    url: https://github.com/ros-drivers/four_wheel_steering_msgs.git
+    version: 1.1.1
   foxglove_msgs:
     type: git
     url: https://github.com/foxglove/foxglove-sdk.git
@@ -421,6 +425,14 @@ repositories:
     type: git
     url: https://github.com/ros-o/urdf.git
     version: 0bc10897b35e2e19493306a0e5ee7b62d8e7a491
+  urdf_geometry_parser:
+    type: git
+    url: https://github.com/ros-controls/urdf_geometry_parser.git
+    version: 0.1.0
+  urdfdom_py:
+    type: git
+    url: https://github.com/ros/urdf_parser_py.git
+    version: 0.4.6
   vision_msgs:
     type: git
     url: https://github.com/Kukanani/vision_msgs.git

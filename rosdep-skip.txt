@@ -1,2 +1,20 @@
 # hddtemp was removed from Ubuntu. diagnostic_common_diagnostics still declares it.
 hddtemp
+# Noble has no libvrpn-dev. vrpn is compiled from ./src/vrpn before catkin.
+vrpn
+# These are exec dependencies of metapackages. The ros-one apt names are not
+# in Ubuntu 24.04, and Gazebo Classic is not part of this build.
+gazebo_ros_pkgs
+stage_ros
+common_tutorials
+geometry_tutorials
+ros_tutorials
+urdf_tutorial
+visualization_tutorials
+urdf_sim_tutorial
+executive_smach
+# Ubuntu ships python3-catkin-pkg and python3-rospkg. The ROS-O split
+# packages python3-*-modules are not in Noble.
+python3-catkin-pkg-modules
+python3-rospkg-modules
+python3-rosdep-modules

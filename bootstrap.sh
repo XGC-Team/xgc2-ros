@@ -94,7 +94,10 @@ cmd_rosdep_install() {
   export ROS_HOME="$ROOT/.ros"
   export ROSDEP_SOURCE_PATH="$ROOT/rosdep"
   local -a args
-  args=(install --from-paths "$ROOT/src" --ignore-src --rosdistro "$DISTRO" -y)
+  args=(install --from-paths "$ROOT/src" --ignore-src --rosdistro "$DISTRO" -y
+    --dependency-types buildtool --dependency-types buildtool_export
+    --dependency-types build --dependency-types build_export
+    --dependency-types exec)
   local skips
   skips="$(list_words "$ROOT/rosdep-skip.txt" | paste -sd' ' -)"
   if [[ -n "$skips" ]]; then
@@ -105,20 +108,22 @@ cmd_rosdep_install() {
 }
 
 cmd_geographiclib() {
-  local script marker
+  local marker parent
   marker="$ROOT/.ros/geographiclib-datasets-installed"
+  parent="$ROOT/install/share/GeographicLib"
   if [[ -f "$marker" ]]; then
     log "GeographicLib datasets were already installed for this checkout."
     return 0
   fi
-  script="$(find "$ROOT/src" -path '*/mavros/scripts/install_geographiclib_datasets.sh' -print -quit || true)"
-  if [[ -z "$script" ]]; then
-    log "MAVROS GeographicLib installer was not found; skipping datasets."
+  if [[ ! -d "$ROOT/src" ]] || ! find "$ROOT/src" -path '*/mavros/package.xml' -print -quit | grep -q .; then
+    log "MAVROS is not in src/; skipping GeographicLib datasets."
     return 0
   fi
-  log "Installing GeographicLib datasets used by MAVROS."
-  sudo -v
-  sudo bash "$script"
+  log "Installing GeographicLib datasets under install/share/GeographicLib."
+  mkdir -p "$parent"
+  geographiclib-get-geoids -p "$parent" egm96-5
+  geographiclib-get-gravity -p "$parent" egm96
+  geographiclib-get-magnetic -p "$parent" emm2015
   mkdir -p "$ROOT/.ros"
   touch "$marker"
 }
@@ -132,6 +137,17 @@ cmd_build() {
   log "Building ${DISTRO} with at most ${jobs} cores."
   if [[ "$DISTRO" == "noetic" ]]; then
     [[ -x "$ROOT/src/catkin/bin/catkin_make_isolated" ]] || die "catkin is not in src/. Run ./bootstrap.sh fetch first."
+    # vrpn has no package.xml, so catkin will not build it. vrpn_client_ros
+    # finds the library through VRPNConfig.cmake in the install prefix.
+    if [[ ! -f "$ROOT/install/lib/cmake/vrpn/VRPNConfig.cmake" && ! -f "$ROOT/install/share/vrpn/cmake/vrpn-config.cmake" ]]; then
+      log "Building VRPN into install/."
+      cmake -S "$ROOT/src/vrpn" -B "$ROOT/build/vrpn" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$ROOT/install" \
+        -DBUILD_TESTING=OFF
+      cmake --build "$ROOT/build/vrpn" -j "$jobs"
+      cmake --install "$ROOT/build/vrpn"
+    fi
     "$ROOT/src/catkin/bin/catkin_make_isolated" \
       --install \
       --install-space "$ROOT/install" \
