@@ -6,9 +6,16 @@ name: Noetic on Ubuntu 24.04
 
 on:
   workflow_dispatch:
+    inputs:
+      reuse_run_id:
+        description: Run id whose Noetic and Gazebo prefixes to package. Empty compiles them.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 defaults:
   run:
@@ -18,6 +25,7 @@ defaults:
 jobs:
   ros:
     name: noetic-${{ matrix.arch }}
+    if: inputs.reuse_run_id == ''
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -65,6 +73,7 @@ jobs:
 
   gazebo:
     name: gazebo-${{ matrix.arch }}
+    if: inputs.reuse_run_id == ''
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -113,8 +122,12 @@ jobs:
   package:
     name: package-${{ matrix.arch }}
     needs: [ros, gazebo]
+    if: >-
+      always() &&
+      (needs.ros.result == 'success' || needs.ros.result == 'skipped') &&
+      (needs.gazebo.result == 'success' || needs.gazebo.result == 'skipped')
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -134,16 +147,83 @@ jobs:
           set -euo pipefail
           git clone --branch noetic --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" tree
           git -C tree submodule update --init --depth 1 gazebo
+      # dpkg-shlibdeps exits before writing Depends when a SONAME is absent.
+      - name: Install host libraries so shlibdeps can name them
+        run: |
+          set -euo pipefail
+          mapfile -t pkgs < <(
+            awk '{ sub(/#.*/, ""); if (NF) print $1 }' \
+              tree/apt-host.txt tree/gazebo/apt-host.txt | sort -u
+          )
+          apt-get update
+          apt-get install -y --no-install-recommends "${pkgs[@]}"
       - name: Download the Noetic prefix
+        if: inputs.reuse_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: ros-prefix-${{ matrix.arch }}
           path: incoming/ros
       - name: Download the Gazebo prefix
+        if: inputs.reuse_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: gazebo-prefix-${{ matrix.arch }}
           path: incoming/gazebo
+      - name: Download prefixes from an earlier run
+        if: inputs.reuse_run_id != ''
+        env:
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import io
+          import json
+          import os
+          import pathlib
+          import urllib.request
+          import zipfile
+
+          class DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  new = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if new is not None:
+                      new.remove_header("Authorization")
+                  return new
+
+          opener = urllib.request.build_opener(DropAuthOnRedirect)
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run = os.environ["REUSE_RUN_ID"]
+          arch = os.environ["ARCH"]
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+          want = {
+              f"ros-prefix-{arch}": pathlib.Path("incoming/ros"),
+              f"gazebo-prefix-{arch}": pathlib.Path("incoming/gazebo"),
+          }
+          list_url = (
+              f"https://api.github.com/repos/{repo}/actions/runs/{run}/artifacts?per_page=100"
+          )
+          with opener.open(urllib.request.Request(list_url, headers=headers)) as resp:
+              artifacts = json.load(resp)["artifacts"]
+          found = {item["name"]: item for item in artifacts}
+          missing = [name for name in want if name not in found]
+          if missing:
+              raise SystemExit("missing artifacts: " + ", ".join(missing))
+          for name, dest in want.items():
+              dest.mkdir(parents=True, exist_ok=True)
+              url = found[name]["archive_download_url"]
+              with opener.open(urllib.request.Request(url, headers=headers)) as resp:
+                  payload = resp.read()
+              with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                  archive.extractall(dest)
+              print(f"extracted {name} into {dest}")
+          PY
       - name: Package xgc2-ros-noetic
         run: |
           set -euo pipefail
