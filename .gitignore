@@ -1,0 +1,13 @@
+/src/
+/build/
+/build_isolated/
+/devel/
+/devel_isolated/
+/install/
+/install_isolated/
+/log/
+/.venv/
+/.ros/
+/.colcon/
+__pycache__/
+*.pyc

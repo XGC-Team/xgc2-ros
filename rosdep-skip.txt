@@ -1,0 +1,2 @@
+# hddtemp was removed from Ubuntu. diagnostic_common_diagnostics still declares it.
+hddtemp
