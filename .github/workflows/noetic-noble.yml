@@ -25,6 +25,10 @@ jobs:
     container: ubuntu:24.04
     env:
       DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        # This image runs job steps with sh. pipefail is a bash option.
+        shell: bash
     steps:
       - name: Install the tools needed to fetch this repo
         run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git sudo python3
