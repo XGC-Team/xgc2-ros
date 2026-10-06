@@ -273,15 +273,37 @@ cmd_smoke() {
   log "Shell startup files were not modified."
 }
 
+cmd_gazebo() {
+  if [[ "$DISTRO" != noetic ]]; then
+    return 0
+  fi
+  if [[ "${XGC2_SKIP_GAZEBO:-}" == 1 ]]; then
+    log "Skipping Gazebo Classic."
+    return 0
+  fi
+  if [[ ! -x "$ROOT/gazebo/bootstrap.sh" ]]; then
+    log "gazebo/bootstrap.sh is missing. Initialize the gazebo submodule to install Gazebo Classic."
+    return 0
+  fi
+  local gz_prefix="${XGC2_GAZEBO_PREFIX:-$PREFIX/opt/gazebo}"
+  mkdir -p "$gz_prefix"
+  XGC2_GAZEBO_PREFIX="$gz_prefix" "$ROOT/gazebo/bootstrap.sh"
+  mkdir -p "$PREFIX/etc/catkin/profile.d"
+  cp "$ROOT/gazebo/prefix.sh" "$PREFIX/etc/catkin/profile.d/99-xgc2-gazebo.sh"
+}
+
 usage() {
   cat <<EOF
 Usage: ./bootstrap.sh [all|deps|fetch|build|refresh-pins]
 
-  all           toolchain, source download, dependencies, build (default)
+  all           toolchain, source download, dependencies, build, Gazebo Classic (default)
   deps          apt toolchain and rosdep
   fetch         clone the pinned sources into ./src
-  build         install library dependencies, compile, smoke check
+  build         install library dependencies, compile, smoke check, Gazebo Classic
   refresh-pins  rewrite upstream.repos from packages.txt
+
+Gazebo Classic installs to ${PREFIX}/opt/gazebo when the gazebo submodule is present.
+Set XGC2_SKIP_GAZEBO=1 to build Noetic without it.
 
 Compilation uses at most ${MAX_JOBS} cores. Set ROS_BUILD_JOBS to a smaller number if you want.
 If a build stops, run ./bootstrap.sh build to continue it.
@@ -298,6 +320,7 @@ main() {
       cmd_geographiclib
       cmd_build
       cmd_smoke
+      cmd_gazebo
       ;;
     deps) cmd_deps ;;
     fetch) cmd_fetch ;;
@@ -306,6 +329,7 @@ main() {
       cmd_geographiclib
       cmd_build
       cmd_smoke
+      cmd_gazebo
       ;;
     refresh-pins)
       cmd_deps

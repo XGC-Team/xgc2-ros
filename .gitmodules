@@ -1,0 +1,4 @@
+[submodule "gazebo"]
+	path = gazebo
+	url = https://github.com/XGC-Team/xgc2-gazebo.git
+	branch = noble-gz11

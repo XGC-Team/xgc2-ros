@@ -35,12 +35,20 @@ if [ -d /opt/ros/noetic/share/GeographicLib/geoids ]; then
 fi
 EOF
 
+if [[ -x "$pkg/opt/ros/noetic/opt/gazebo/bin/gazebo" && -f "$ROOT/gazebo/prefix.sh" ]]; then
+  cp "$ROOT/gazebo/prefix.sh" "$pkg/opt/ros/noetic/etc/catkin/profile.d/99-xgc2-gazebo.sh"
+fi
+
 cat > "$pkg/usr/share/doc/xgc2-ros-noetic/README" << 'EOF'
 ROS 1 Noetic for Ubuntu 24.04.
 
 On Ubuntu 20.04 the upstream metapackage is ros-noetic-desktop-full.
 Ubuntu 24.04 does not publish that package. This package installs the
-XGC Noetic build into /opt/ros/noetic. Gazebo Classic is not included.
+XGC Noetic build into /opt/ros/noetic.
+
+Gazebo Classic is at /opt/ros/noetic/opt/gazebo. It is not installed
+into /usr. Sourcing the Noetic setup file adds that prefix to PATH
+and to the CMake and pkg-config search paths.
 
 Load it in a shell when needed:
 
@@ -84,9 +92,20 @@ if libs:
     debdir.mkdir()
     (debdir / "control").write_text(
         "Source: xgc2-ros-noetic\n\nPackage: xgc2-ros-noetic\nArchitecture: any\nDescription: placeholder\n scan\n")
+    libdirs = [pkg / "opt/ros/noetic/lib"]
+    gz_lib = pkg / "opt/ros/noetic/opt/gazebo/lib"
+    if gz_lib.is_dir():
+        libdirs.append(gz_lib)
+        for child in gz_lib.iterdir():
+            if not child.is_dir():
+                continue
+            libdirs.append(child)
+            plugins = child / "gazebo-11" / "plugins"
+            if plugins.is_dir():
+                libdirs.append(plugins)
     proc = subprocess.run(
-        ["dpkg-shlibdeps", "-O", f"-l{pkg / 'opt/ros/noetic/lib'}",
-         "--ignore-missing-info", *libs],
+        ["dpkg-shlibdeps", "-O", "--ignore-missing-info",
+         *[f"-l{path}" for path in libdirs], *libs],
         check=False, text=True, capture_output=True, cwd=stage)
     (stage / "shlibdeps.err").write_text(proc.stderr)
     text = proc.stdout.strip()
@@ -120,7 +139,8 @@ Depends: {", ".join(depends)}
 Description: ROS 1 Noetic for Ubuntu 24.04
  Ubuntu 20.04 ships this role as ros-noetic-desktop-full. Ubuntu 24.04 does not.
  This package installs the XGC Noetic build into /opt/ros/noetic.
- Gazebo Classic is not included, because Ubuntu 24.04 does not ship Gazebo 11.
+ Gazebo Classic is at /opt/ros/noetic/opt/gazebo and is not installed into /usr.
+ Source /opt/ros/noetic/setup.bash to put that prefix on PATH.
  Source and the build scripts stay in https://github.com/XGC-Team/xgc2-ros
 """
 (pkg / "DEBIAN/control").write_text(control)
