@@ -52,7 +52,7 @@ repositories:
   foxglove_msgs:
     type: git
     url: https://github.com/foxglove/foxglove-sdk.git
-    version: 2.3.0
+    version: ros-v2.3.0
   gencpp:
     type: git
     url: https://github.com/ros-o/gencpp.git
@@ -71,8 +71,8 @@ repositories:
     version: 0.6.1
   gennodejs:
     type: git
-    url: https://github.com/RethinkRobotics-opensource/gennodejs.git
-    version: 2.0.2
+    url: https://github.com/sloretz/gennodejs-release.git
+    version: release/noetic/gennodejs/2.0.2-1
   genpy:
     type: git
     url: https://github.com/ros/genpy.git
@@ -140,7 +140,7 @@ repositories:
   mavlink:
     type: git
     url: https://github.com/mavlink/mavlink-gbp-release.git
-    version: 2025.5.5
+    version: upstream/2025.5.5
   mavros:
     type: git
     url: https://github.com/ros-o/mavros.git
@@ -172,7 +172,7 @@ repositories:
   octomap:
     type: git
     url: https://github.com/OctoMap/octomap.git
-    version: 1.9.8
+    version: v1.9.8
   octomap_msgs:
     type: git
     url: https://github.com/OctoMap/octomap_msgs.git
@@ -432,7 +432,7 @@ repositories:
   vrpn:
     type: git
     url: https://github.com/vrpn/vrpn.git
-    version: 7.34.0
+    version: version_07.34
   vrpn_client_ros:
     type: git
     url: https://github.com/ros-drivers/vrpn_client_ros.git
