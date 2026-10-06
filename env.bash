@@ -8,6 +8,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 _xgc2_ros_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -d "${_xgc2_ros_root}/install/share/GeographicLib" ]]; then
+  export GEOGRAPHICLIB_DATA="${_xgc2_ros_root}/install/share/GeographicLib"
+fi
 if [[ ! -f "${_xgc2_ros_root}/install/setup.bash" ]]; then
   printf '%s\n' "install/setup.bash is missing. From this directory run ./bootstrap.sh" >&2
   unset _xgc2_ros_root
