@@ -1,0 +1,33 @@
+# ROS package names. ./bootstrap.sh refresh-pins rewrites upstream.repos from this list.
+# The pin includes build and run dependencies. Test-only packages are omitted.
+ros_base
+rviz2
+rqt
+rqt_common_plugins
+image_pipeline
+image_transport_plugins
+cv_bridge
+pcl_conversions
+pcl_ros
+pcl_msgs
+robot_state_publisher
+joint_state_publisher
+joint_state_publisher_gui
+xacro
+ros_gz
+mavros
+mavros_extras
+mavlink
+vrpn
+vrpn_mocap
+rmw_cyclonedds_cpp
+vision_msgs
+diagnostic_updater
+camera_info_manager
+camera_calibration
+teleop_twist_keyboard
+joy
+octomap_ros
+octomap_msgs
+laser_filters
+laser_geometry

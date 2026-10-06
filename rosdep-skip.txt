@@ -1,0 +1,2 @@
+# Keys skipped because they are not installable on this Ubuntu release.
+# Leave a token here only when rosdep cannot map it and the package still builds.

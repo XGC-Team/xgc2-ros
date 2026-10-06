@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Rewrite upstream.repos from packages.txt.
+
+The pin is the build and run closure of packages.txt. Test dependencies are
+left out. On Noetic, repositories that have a ROS-O source fork are replaced
+with that fork's pinned commit so Ubuntu 24.04 can compile them. ros_environment
+stays on the Noetic release, so the install still reports ROS_DISTRO=noetic.
+"""
+
+from __future__ import annotations
+
+import inspect
+import sys
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+ROS_ONE_URL = (
+    "https://raw.githubusercontent.com/ubi-agni/ros-builder-action/"
+    "2cc129da1035764418affc45beb6b17089d576aa/ros-one.repos"
+)
+# ros-o/ros_environment sets ROS_DISTRO=one. mavlink's upstream release is
+# already the pinned gbp tag from rosdistro.
+ROS_O_DENY = {"ros_environment", "mavlink"}
+EXCLUDES = {
+    "jazzy": [
+        # RTI Connext is not part of the source build.
+        "rmw_connextdds",
+        "rmw_connextdds_common",
+        "rti_connext_dds_cmake_module",
+        # Listed by rosidl_core_generators. Once installed, every interface
+        # package generates Rust. C, C++, and Python generators still run
+        # from the packages that are present, so Rust stays out.
+        "rosidl_generator_rs",
+        # ament_uncrustify is a linter. The build does not run it.
+        "uncrustify_vendor",
+    ],
+}
+# rosdistro records this package without an upstream URL. The commit is
+# unique_identifier 1.0.6, the Noetic release, on the upstream master branch.
+EXTRA_REPOS = {
+    "noetic": {
+        "unique_identifier": {
+            "type": "git",
+            "url": "https://github.com/ros-geographic-info/unique_identifier.git",
+            "version": "39b8b62abb30f77e9c2c7503cdecdd06756e0946",
+        }
+    }
+}
+
+
+def read_names(path: Path) -> list[str]:
+    names = []
+    for line in path.read_text().splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            names.append(line.split()[0])
+    return names
+
+
+def drop_test_dependencies() -> None:
+    import rosinstall_generator.distro as distro
+    import rosinstall_generator.generator as generator
+
+    def patched(fn):
+        source = inspect.getsource(fn).replace(", 'test'", "")
+        namespace = dict(distro.__dict__)
+        exec(source, namespace)
+        return namespace[fn.__name__]
+
+    generator.get_recursive_dependencies_of_wet = patched(distro.get_recursive_dependencies)
+    generator.get_recursive_dependencies_on_of_wet = patched(
+        distro.get_recursive_dependencies_on
+    )
+
+
+def generate(distro: str, packages: list[str]) -> dict:
+    drop_test_dependencies()
+    from rosinstall_generator.generator import generate_rosinstall
+
+    entries = generate_rosinstall(
+        distro,
+        packages,
+        deps=True,
+        wet_only=True,
+        excludes=EXCLUDES.get(distro, []),
+        upstream_version_tag=True,
+    )
+    repositories = {}
+    for entry in entries:
+        kind = next(iter(entry))
+        spec = entry[kind]
+        repositories[spec["local-name"]] = {
+            "type": kind,
+            "url": spec["uri"],
+            "version": spec.get("version"),
+        }
+    return repositories
+
+
+def resolve_version(url: str, version: str) -> str:
+    import subprocess
+
+    if len(version) == 40 and all(c in "0123456789abcdef" for c in version):
+        return version
+    for ref in (f"refs/heads/{version}", f"refs/tags/{version}"):
+        proc = subprocess.run(
+            ["git", "ls-remote", url, ref],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        lines = proc.stdout.splitlines()
+        if proc.returncode == 0 and lines:
+            return lines[0].split()[0]
+    raise RuntimeError(f"cannot resolve {url} @ {version}")
+
+
+def apply_ros_o(repositories: dict) -> list[str]:
+    with urllib.request.urlopen(ROS_ONE_URL, timeout=90) as response:
+        overlay = yaml.safe_load(response.read().decode())["repositories"]
+    jobs = []
+    for name, spec in overlay.items():
+        if name not in repositories or name in ROS_O_DENY:
+            continue
+        url = spec.get("url") or ""
+        if "github.com/ros-o/" not in url:
+            continue
+        jobs.append((name, url, spec.get("version") or ""))
+
+    def work(item):
+        name, url, version = item
+        return name, url, resolve_version(url, version)
+
+    replaced = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for name, url, version in pool.map(work, jobs):
+            repositories[name] = {"type": "git", "url": url, "version": version}
+            replaced.append(name)
+    return sorted(replaced)
+
+
+def write_repos(path: Path, repositories: dict) -> None:
+    lines = [
+        "# Pinned checkouts for vcs import. Generated by scripts/refresh-upstream.py.",
+        "# The ROS source itself is downloaded into src/ and is not stored in git.",
+        "repositories:",
+    ]
+    for name in sorted(repositories):
+        spec = repositories[name]
+        lines.append(f"  {name}:")
+        lines.append(f"    type: {spec['type']}")
+        lines.append(f"    url: {spec['url']}")
+        lines.append(f"    version: {spec['version']}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def main() -> int:
+    distro = (ROOT / "DISTRO").read_text().strip()
+    packages = read_names(ROOT / "packages.txt")
+    print(f"resolving {distro} from {len(packages)} package names", flush=True)
+    repositories = generate(distro, packages)
+    replaced = []
+    if distro == "noetic":
+        replaced = apply_ros_o(repositories)
+    for name, spec in EXTRA_REPOS.get(distro, {}).items():
+        repositories[name] = spec
+    write_repos(ROOT / "upstream.repos", repositories)
+    print(f"wrote {len(repositories)} repositories", flush=True)
+    if replaced:
+        print("ROS-O pins: " + ", ".join(replaced), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
