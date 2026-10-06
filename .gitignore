@@ -9,5 +9,6 @@
 /.venv/
 /.ros/
 /.colcon/
+/dist/
 __pycache__/
 *.pyc

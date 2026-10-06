@@ -1,6 +1,6 @@
 # ROS 1 Noetic 源码构建
 
-在 Ubuntu 24.04 上把 Noetic 源码下载到本目录的 `src/` 并安装到 `install/`。Git 不保存这些源码。
+在 Ubuntu 24.04 上把 Noetic 源码下载到本目录的 `src/`，编译结果安装到 `/opt/ros/noetic`。仓库可以克隆到任意路径。Git 不保存这些源码。
 
 ```bash
 git clone -b noetic --single-branch git@github.com:XGC-Team/xgc2-ros.git ros/noetic
@@ -9,7 +9,7 @@ cd ros/noetic
 source env.bash
 ```
 
-`./bootstrap.sh` 会请求 sudo，用来安装编译工具链、系统依赖库，以及 MAVROS 需要的 GeographicLib 数据集。ROS 包本身在本目录编译，不安装 `ros-noetic-*` 或 `ros-one-*` 二进制包。不要把 `source env.bash` 写进 `~/.bashrc`。
+`./bootstrap.sh` 会请求 sudo，用来安装编译工具链、系统依赖库，创建 `/opt/ros/noetic`，以及 MAVROS 需要的 GeographicLib 数据集。ROS 包从本目录的 `src/` 编译进 `/opt/ros/noetic`，不安装 `ros-noetic-*` 或 `ros-one-*` 二进制包。不要把 `source env.bash` 写进 `~/.bashrc`。
 
 编译最多使用 16 核。需要更少时：
 
@@ -35,6 +35,19 @@ Ubuntu 24.04 的官方 Noetic 源码有一批仓库编不过。这些仓库改�
 - `jsk_rviz_plugins` 会带上 `jsk_recognition`，在 24.04 上不能稳定编过。需要时把包名加进 `packages.txt`，再运行 `./bootstrap.sh refresh-pins`。
 
 VRPN 使用源码包 `vrpn` 和 `vrpn_client_ros`。Ubuntu 24.04 没有 `libvrpn-dev`。
+
+## 安装包
+
+Focal 上同角色的官方包叫 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。`main` 分支上的工作流会在干净的 Ubuntu 24.04 里编译本分支，打出 amd64 和 arm64 的 `xgc2-ros-noetic`。Gazebo Classic 不在包里。
+
+下载和本机架构一致的 deb 后：
+
+```bash
+sudo apt install ./xgc2-ros-noetic_<版本>_<架构>.deb
+source /opt/ros/noetic/setup.bash
+```
+
+不要把 `source` 写进 `~/.bashrc`。本地克隆后运行 `./bootstrap.sh` 仍然可以，那是另一条路，不会被 CI 改写。
 
 更新锁定文件：
 

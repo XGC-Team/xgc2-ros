@@ -8,12 +8,14 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 fi
 
 _xgc2_ros_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -d "${_xgc2_ros_root}/install/share/GeographicLib" ]]; then
-  export GEOGRAPHICLIB_DATA="${_xgc2_ros_root}/install/share/GeographicLib"
+_xgc2_ros_distro="$(tr -d '[:space:]' < "${_xgc2_ros_root}/DISTRO")"
+_xgc2_ros_prefix="/opt/ros/${_xgc2_ros_distro}"
+if [[ -d "${_xgc2_ros_prefix}/share/GeographicLib" ]]; then
+  export GEOGRAPHICLIB_DATA="${_xgc2_ros_prefix}/share/GeographicLib"
 fi
-if [[ ! -f "${_xgc2_ros_root}/install/setup.bash" ]]; then
-  printf '%s\n' "install/setup.bash is missing. From this directory run ./bootstrap.sh" >&2
-  unset _xgc2_ros_root
+if [[ ! -f "${_xgc2_ros_prefix}/setup.bash" ]]; then
+  printf '%s\n' "${_xgc2_ros_prefix}/setup.bash is missing. From this directory run ./bootstrap.sh" >&2
+  unset _xgc2_ros_root _xgc2_ros_distro _xgc2_ros_prefix
   return 1
 fi
 
@@ -23,8 +25,8 @@ case $- in
 esac
 set +u
 # shellcheck disable=SC1091
-source "${_xgc2_ros_root}/install/setup.bash"
+source "${_xgc2_ros_prefix}/setup.bash"
 if [[ "${_xgc2_ros_nounset}" -eq 1 ]]; then
   set -u
 fi
-unset _xgc2_ros_root _xgc2_ros_nounset
+unset _xgc2_ros_root _xgc2_ros_distro _xgc2_ros_prefix _xgc2_ros_nounset

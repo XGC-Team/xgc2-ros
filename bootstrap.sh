@@ -1,18 +1,38 @@
 #!/usr/bin/env bash
-# Build this ROS distribution from source into this checkout.
-# Sources land in ./src. The install prefix is ./install.
-# Paths are relative to this checkout. The script does not edit shell startup files.
+# Build this ROS distribution from source.
+# Sources land in ./src inside the git checkout. The checkout can live anywhere.
+# The install prefix is /opt/ros/<distro>. The script does not edit shell startup files.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 DISTRO="$(tr -d '[:space:]' < "$ROOT/DISTRO")"
+PREFIX="/opt/ros/${DISTRO}"
 MAX_JOBS=16
 VENV="$ROOT/.venv"
 
 log() { printf '%s\n' "$*"; }
 die() { printf '%s\n' "$*" >&2; exit 1; }
+
+ensure_install_prefix() {
+  if [[ -d "$PREFIX" && -w "$PREFIX" ]]; then
+    return 0
+  fi
+  log "Creating ${PREFIX}. The git checkout stays where it was cloned."
+  sudo mkdir -p "$PREFIX"
+  sudo chown -R "$(id -un):$(id -gn)" "$PREFIX"
+}
+
+# Every dialect runs mavgen into the same include/v1.0 and include/v2.0 trees.
+# A parallel build interleaves those writes and installs torn headers.
+serialize_mavgen() {
+  local mavlink_cmake="$ROOT/src/mavlink/CMakeLists.txt"
+  if [[ -f "$mavlink_cmake" ]] && ! grep -q 'mavgen.lock' "$mavlink_cmake"; then
+    log "Serializing mavlink header generation. Parallel mavgen writes the same headers."
+    sed -i 's#${Python_EXECUTABLE} ${mavgen_path}#/usr/bin/flock ${CMAKE_BINARY_DIR}/mavgen.lock ${Python_EXECUTABLE} ${mavgen_path}#' "$mavlink_cmake"
+  fi
+}
 
 job_count() {
   local jobs="${ROS_BUILD_JOBS:-$MAX_JOBS}"
@@ -55,7 +75,7 @@ cmd_deps() {
   if [[ "$(id -u)" -eq 0 ]]; then
     die "Run ./bootstrap.sh as your user. It calls sudo only for apt and GeographicLib."
   fi
-  log "Installing the host toolchain with sudo. ROS itself is built from source, not installed from apt."
+  log "Installing apt packages from apt-host.txt. ROS itself is built from source, not installed from apt."
   sudo -v
   sudo apt-get update
   # shellcheck disable=SC2046
@@ -99,27 +119,29 @@ cmd_rosdep_install() {
     --dependency-types build --dependency-types build_export
     --dependency-types exec)
   local skips
+  # rosdep treats one --skip-keys value as a space-separated list. Separate
+  # arguments would be read as source paths.
   skips="$(list_words "$ROOT/rosdep-skip.txt" | paste -sd' ' -)"
   if [[ -n "$skips" ]]; then
-    # shellcheck disable=SC2206
-    args+=(--skip-keys $skips)
+    args+=(--skip-keys "$skips")
   fi
   "$VENV/bin/rosdep" "${args[@]}"
 }
 
 cmd_geographiclib() {
   local marker parent
+  ensure_install_prefix
   marker="$ROOT/.ros/geographiclib-datasets-installed"
-  parent="$ROOT/install/share/GeographicLib"
-  if [[ -f "$marker" ]]; then
-    log "GeographicLib datasets were already installed for this checkout."
+  parent="$PREFIX/share/GeographicLib"
+  if [[ -d "$parent/geoids" && -d "$parent/gravity" && -d "$parent/magnetic" ]]; then
+    log "GeographicLib datasets were already installed under ${parent}."
     return 0
   fi
   if [[ ! -d "$ROOT/src" ]] || ! find "$ROOT/src" -path '*/mavros/package.xml' -print -quit | grep -q .; then
     log "MAVROS is not in src/; skipping GeographicLib datasets."
     return 0
   fi
-  log "Installing GeographicLib datasets under install/share/GeographicLib."
+  log "Installing GeographicLib datasets under ${parent}."
   mkdir -p "$parent"
   geographiclib-get-geoids -p "$parent" egm96-5
   geographiclib-get-gravity -p "$parent" egm96
@@ -134,33 +156,87 @@ cmd_build() {
   jobs="$(job_count)"
   export CMAKE_BUILD_PARALLEL_LEVEL="$jobs"
   export MAKEFLAGS="-j${jobs}"
-  log "Building ${DISTRO} with at most ${jobs} cores."
+  ensure_install_prefix
+  log "Building ${DISTRO} into ${PREFIX} with at most ${jobs} cores."
   if [[ "$DISTRO" == "noetic" ]]; then
     [[ -x "$ROOT/src/catkin/bin/catkin_make_isolated" ]] || die "catkin is not in src/. Run ./bootstrap.sh fetch first."
-    # vrpn has no package.xml, so catkin will not build it. vrpn_client_ros
-    # finds the library through VRPNConfig.cmake in the install prefix.
-    if [[ ! -f "$ROOT/install/lib/cmake/vrpn/VRPNConfig.cmake" && ! -f "$ROOT/install/share/vrpn/cmake/vrpn-config.cmake" ]]; then
-      log "Building VRPN into install/."
+    # vrpn has no package.xml, so catkin will not build it. Upstream VRPN
+    # also does not install a CMake package. vrpn_client_ros uses the client
+    # library, libquat, and pthread.
+    vrpn_config="$PREFIX/lib/cmake/vrpn/VRPNConfig.cmake"
+    if [[ ! -f "$vrpn_config" && ! -f "$PREFIX/share/vrpn/cmake/vrpn-config.cmake" && ! -f "$PREFIX/lib/libvrpn.a" ]]; then
+      log "Building VRPN into ${PREFIX}."
       cmake -S "$ROOT/src/vrpn" -B "$ROOT/build/vrpn" \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$ROOT/install" \
+        -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DBUILD_TESTING=OFF
       cmake --build "$ROOT/build/vrpn" -j "$jobs"
       cmake --install "$ROOT/build/vrpn"
     fi
+    if [[ ! -f "$vrpn_config" && -f "$PREFIX/lib/libvrpn.a" && -f "$PREFIX/lib/libquat.a" ]]; then
+      log "Writing VRPNConfig.cmake into ${PREFIX}."
+      mkdir -p "$(dirname "$vrpn_config")"
+      cat > "$vrpn_config" << 'EOF'
+get_filename_component(_vrpn_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(VRPN_FOUND TRUE)
+set(VRPN_INCLUDE_DIR "${_vrpn_prefix}/include")
+set(VRPN_INCLUDE_DIRS "${VRPN_INCLUDE_DIR}")
+set(VRPN_LIBRARY "${_vrpn_prefix}/lib/libvrpn.a")
+set(VRPN_LIBRARIES
+  "${_vrpn_prefix}/lib/libvrpn.a"
+  "${_vrpn_prefix}/lib/libquat.a"
+  pthread)
+EOF
+    fi
+    # mavlink defaults to Python 2 when this is unset. Noetic is Python 3.
+    export ROS_PYTHON_VERSION=3
+    # octomap 1.9.8 compiles with -Werror. GCC 13 deprecates std::iterator.
+    octomap_flags="$ROOT/src/octomap/octomap/CMakeModules/CompilerSettings.cmake"
+    if [[ -f "$octomap_flags" ]] && grep -q ' -Werror ' "$octomap_flags"; then
+      log "Dropping -Werror from octomap so GCC 13 deprecation warnings do not fail the build."
+      sed -i 's/ -Werror / -Wno-error /' "$octomap_flags"
+    fi
+    serialize_mavgen
     "$ROOT/src/catkin/bin/catkin_make_isolated" \
       --install \
-      --install-space "$ROOT/install" \
+      --install-space "$PREFIX" \
       -j"$jobs" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCATKIN_ENABLE_TESTING=OFF \
       -DPYTHON_EXECUTABLE=/usr/bin/python3
   elif [[ "$DISTRO" == "jazzy" ]]; then
     command -v colcon >/dev/null || die "colcon is missing. Run ./bootstrap.sh deps first."
+    # vrpn has no package.xml. vrpn_mocap finds it through VRPNConfig.cmake.
+    vrpn_config="$PREFIX/lib/cmake/vrpn/VRPNConfig.cmake"
+    if [[ ! -f "$vrpn_config" && ! -f "$PREFIX/share/vrpn/cmake/vrpn-config.cmake" && ! -f "$PREFIX/lib/libvrpn.a" ]]; then
+      log "Building VRPN into ${PREFIX}."
+      cmake -S "$ROOT/src/vrpn" -B "$ROOT/build/vrpn" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+        -DBUILD_TESTING=OFF
+      cmake --build "$ROOT/build/vrpn" -j "$jobs"
+      cmake --install "$ROOT/build/vrpn"
+    fi
+    if [[ ! -f "$vrpn_config" && -f "$PREFIX/lib/libvrpn.a" && -f "$PREFIX/lib/libquat.a" ]]; then
+      log "Writing VRPNConfig.cmake into ${PREFIX}."
+      mkdir -p "$(dirname "$vrpn_config")"
+      cat > "$vrpn_config" << 'EOF'
+get_filename_component(_vrpn_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+set(VRPN_FOUND TRUE)
+set(VRPN_INCLUDE_DIR "${_vrpn_prefix}/include")
+set(VRPN_INCLUDE_DIRS "${VRPN_INCLUDE_DIR}")
+set(VRPN_LIBRARY "${_vrpn_prefix}/lib/libvrpn.a")
+set(VRPN_LIBRARIES
+  "${_vrpn_prefix}/lib/libvrpn.a"
+  "${_vrpn_prefix}/lib/libquat.a"
+  pthread)
+EOF
+    fi
+    serialize_mavgen
     colcon build \
       --base-paths "$ROOT/src" \
       --build-base "$ROOT/build" \
-      --install-base "$ROOT/install" \
+      --install-base "$PREFIX" \
       --executor sequential \
       --parallel-workers 1 \
       --symlink-install \
@@ -171,7 +247,7 @@ cmd_build() {
 }
 
 cmd_smoke() {
-  [[ -f "$ROOT/install/setup.bash" ]] || die "install/setup.bash was not produced."
+  [[ -f "$PREFIX/setup.bash" ]] || die "${PREFIX}/setup.bash was not produced."
   bash --noprofile --norc -c '
     set -eu
     set +u
@@ -191,7 +267,7 @@ cmd_smoke() {
       ros2 pkg prefix cv_bridge >/dev/null
       ros2 pkg prefix rviz2 >/dev/null
     fi
-  ' bash "$ROOT/install/setup.bash" "$DISTRO"
+  ' bash "$PREFIX/setup.bash" "$DISTRO"
   log "Smoke check passed for ${DISTRO}."
   log "Load this checkout when you need it: source env.bash"
   log "Shell startup files were not modified."
