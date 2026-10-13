@@ -1,25 +1,25 @@
 # xgc2-ros
 
-Ubuntu 24.04 上使用 ROS 的脚本仓库。Git 里只有工具脚本和源码锁定文件，不保存 ROS 源码。
+Scripts for using ROS on Ubuntu 24.04. Git stores the helper scripts and the source lock files. The ROS source tree stays out of Git.
 
-## 安装 Noetic
+## Install Noetic
 
-Ubuntu 20.04 上同角色的官方包叫 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。
+On Ubuntu 20.04 the package for this role is `ros-noetic-desktop-full`. Ubuntu 24.04 does not publish that package.
 
-Actions 里的 “Noetic on Ubuntu 24.04” 可以手动触发。它在干净的 Ubuntu 24.04 上并行编译 Noetic 和 Gazebo Classic，各跑 amd64 和 arm64，再把两者打进 `xgc2-ros-noetic`，发到 [Releases](https://github.com/XGC-Team/xgc2-ros/releases)。Gazebo Classic 位于 `/opt/ros/noetic/opt/gazebo`，不安装到 `/usr`。`source /opt/ros/noetic/setup.bash` 之后使用这份 Gazebo。
+The “Noetic on Ubuntu 24.04” workflow in Actions is started by hand. On a clean Ubuntu 24.04 it builds Noetic and Gazebo Classic side by side, on both amd64 and arm64, packs the two into an `xgc2-ros-noetic` deb for each architecture, and publishes the debs to [Releases](https://github.com/XGC-Team/xgc2-ros/releases). Gazebo Classic is placed at `/opt/ros/noetic/opt/gazebo`, outside `/usr`. After `source /opt/ros/noetic/setup.bash`, that prefix supplies Gazebo.
 
-下载和本机架构一致的 deb：
+Download the deb that matches this machine's architecture:
 
 ```bash
-sudo apt install ./xgc2-ros-noetic_<版本>_<架构>.deb
+sudo apt install ./xgc2-ros-noetic_<version>_<arch>.deb
 source /opt/ros/noetic/setup.bash
 ```
 
-不要把 `source` 写进 `~/.bashrc`。
+Leave that `source` line out of `~/.bashrc`.
 
-## 自己编译
+## Build it yourself
 
-仓库可以克隆到任意路径。源码留在工作副本的 `src/`，Noetic 的编译结果安装到 `/opt/ros/noetic`。这条路和上面的 CI 互不替代。
+Clone the repository to any path. Sources stay in `src/` inside the working copy. The Noetic build installs into `/opt/ros/noetic`. A local build and the CI workflow above are separate paths.
 
 ```bash
 git clone --recurse-submodules -b noetic --single-branch https://github.com/XGC-Team/xgc2-ros.git ros/noetic
@@ -28,14 +28,14 @@ cd ros/noetic
 source env.bash
 ```
 
-`gazebo` 是子仓库 [xgc2-gazebo](https://github.com/XGC-Team/xgc2-gazebo) 的 `noble-gz11`。Noetic 的包名单不编译 Gazebo，所以两条构建可以并行。装好后 Gazebo Classic 在 `/opt/ros/noetic/opt/gazebo`。
+`gazebo` is the `noble-gz11` branch of the [xgc2-gazebo](https://github.com/XGC-Team/xgc2-gazebo) submodule. The Noetic package list does not compile Gazebo, so the two builds can run at the same time. After installation, Gazebo Classic is at `/opt/ros/noetic/opt/gazebo`.
 
-`./bootstrap.sh` 会用 sudo 安装编译工具链和系统库。编译最多 16 核。
+`./bootstrap.sh` uses sudo to install the compiler toolchain and the system libraries. The build uses at most 16 cores.
 
-ROS 2 Jazzy 使用官方 apt 包，不在这个工作流里重编。需要先按 ROS 2 的说明添加 Ubuntu 24.04 软件源，然后安装 `ros-jazzy-desktop-full`。
+ROS 2 Jazzy comes from the official apt packages and stays outside this workflow. Add the Ubuntu 24.04 ROS 2 apt source as the ROS 2 documentation describes, then install `ros-jazzy-desktop-full`.
 
-| 分支 | 内容 |
+| Branch | Contents |
 | --- | --- |
-| `main` | 本说明，以及 Noetic 的双架构工作流 |
+| `main` | This document, and the Noetic workflow for both architectures |
 | `noetic` | ROS 1 Noetic |
-| `jazzy` | ROS 2 Jazzy 的源码阅读副本 |
+| `jazzy` | A ROS 2 Jazzy source tree for reading the code |
