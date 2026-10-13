@@ -1,6 +1,6 @@
-# ROS 2 Jazzy 源码构建
+# Building ROS 2 Jazzy from source
 
-在 Ubuntu 24.04 上把 Jazzy 源码下载到本目录的 `src/` 并安装到 `install/`。Git 不保存这些源码。
+On Ubuntu 24.04 this downloads the Jazzy sources into `src/` in this directory and installs them into `install/`. Git does not store those sources.
 
 ```bash
 git clone -b jazzy --single-branch git@github.com:XGC-Team/xgc2-ros.git ros/jazzy
@@ -9,31 +9,31 @@ cd ros/jazzy
 source env.bash
 ```
 
-`./bootstrap.sh` 会请求 sudo，用来安装编译工具链、系统依赖库，以及 MAVROS 需要的 GeographicLib 数据集。ROS 包本身在本目录编译，不安装 `ros-jazzy-*` 二进制包。不要把 `source env.bash` 写进 `~/.bashrc`。
+`./bootstrap.sh` asks for sudo. It installs the compiler toolchain, the system libraries, and the GeographicLib datasets that MAVROS needs. The ROS packages themselves are built in this directory. It does not install the `ros-jazzy-*` binary packages. Leave `source env.bash` out of `~/.bashrc`.
 
-编译最多使用 16 核，包是一个一个编的，每个包内部使用这些核。需要更少时：
+The build uses at most 16 cores. Packages are built one at a time, and each package uses those cores internally. To use fewer:
 
 ```bash
 ROS_BUILD_JOBS=8 ./bootstrap.sh
 ```
 
-中断后继续编译：
+To continue after an interruption:
 
 ```bash
 ./bootstrap.sh build
 ```
 
-## 这个分支包含什么
+## What this branch contains
 
-默认覆盖 `ros_base`、RViz、rqt、图像与相机、PCL、激光、MAVROS、`vrpn_mocap`、`rmw_cyclonedds_cpp`、octomap，以及 `ros_gz`（Gazebo Harmonic）。包名单在 `packages.txt`，具体检出提交在 `upstream.repos`。
+The default set covers `ros_base`, RViz, rqt, image and camera packages, PCL, laser, MAVROS, `vrpn_mocap`, `rmw_cyclonedds_cpp`, octomap, and `ros_gz` (Gazebo Harmonic). The package list is `packages.txt`. The pinned commits are in `upstream.repos`.
 
-`rmw_connextdds` 依赖 RTI Connext，默认不拉取。Fast DDS 随 `ros_base` 一起构建，Cyclone DDS 按上面的包加入。环境变量不会被脚本改写；要用 Cyclone DDS 时自己导出 `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`。
+`rmw_connextdds` depends on RTI Connext and is left out of the default fetch. Fast DDS is built together with `ros_base`. Cyclone DDS is included through the package named above. The script leaves environment variables unchanged. To use Cyclone DDS, export `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` yourself.
 
-`rosidl_generator_rs` 默认不拉取。装上它之后，编译消息包会生成 Rust 代码，还要准备 rustc。C、C++、Python 的接口生成不依赖它。代码检查用的 `uncrustify_vendor` 也不在默认清单里。
+`rosidl_generator_rs` is left out of the default fetch. Once it is installed, building message packages generates Rust code, which needs rustc. C, C++, and Python interface generation do not depend on it. `uncrustify_vendor`, used for code checks, is also absent from the default list.
 
-`ros_gz` 会在编译时拉取 Gazebo Harmonic 的 vendor 源码，占用的磁盘和时间都比 Noetic 分支大。
+At build time `ros_gz` fetches the Gazebo Harmonic vendor sources. That takes more disk and more time than the Noetic branch.
 
-更新锁定文件：
+Update the lock files:
 
 ```bash
 ./bootstrap.sh refresh-pins
