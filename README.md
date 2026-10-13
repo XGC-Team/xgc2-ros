@@ -1,6 +1,6 @@
-# ROS 1 Noetic 源码构建
+# Building ROS 1 Noetic from source
 
-在 Ubuntu 24.04 上把 Noetic 源码下载到本目录的 `src/`，编译结果安装到 `/opt/ros/noetic`。仓库可以克隆到任意路径。Git 不保存这些源码。
+On Ubuntu 24.04 this downloads the Noetic sources into `src/` in this directory and installs the build into `/opt/ros/noetic`. The repository can be cloned to any path. Git does not store those sources.
 
 ```bash
 git clone --recurse-submodules -b noetic --single-branch https://github.com/XGC-Team/xgc2-ros.git ros/noetic
@@ -9,48 +9,48 @@ cd ros/noetic
 source env.bash
 ```
 
-`./bootstrap.sh` 会请求 sudo，用来安装编译工具链、系统依赖库，创建 `/opt/ros/noetic`，以及 MAVROS 需要的 GeographicLib 数据集。ROS 包从本目录的 `src/` 编译进 `/opt/ros/noetic`，不安装 `ros-noetic-*` 或 `ros-one-*` 二进制包。不要把 `source env.bash` 写进 `~/.bashrc`。
+`./bootstrap.sh` asks for sudo. It installs the compiler toolchain and the system libraries, creates `/opt/ros/noetic`, and installs the GeographicLib datasets that MAVROS needs. ROS packages are built from `src/` in this directory into `/opt/ros/noetic`. It does not install the `ros-noetic-*` or `ros-one-*` binary packages. Leave `source env.bash` out of `~/.bashrc`.
 
-编译最多使用 16 核。需要更少时：
+The build uses at most 16 cores. To use fewer:
 
 ```bash
 ROS_BUILD_JOBS=8 ./bootstrap.sh
 ```
 
-中断后继续编译：
+To continue after an interruption:
 
 ```bash
 ./bootstrap.sh build
 ```
 
-## 这个分支包含什么
+## What this branch contains
 
-默认覆盖日常使用的消息、tf、RViz、rqt、图像与相机、PCL、激光、MAVROS、VRPN client、`robot_state_publisher`、ros_control 里常用的控制器、octomap、diagnostics、`foxglove_msgs`、`ros_babel_fish`、`rosfmt`、`serial`、`gtsam`。包名单在 `packages.txt`，具体检出提交在 `upstream.repos`。
+The default set covers everyday messages, tf, RViz, rqt, image and camera packages, PCL, laser, MAVROS, the VRPN client, `robot_state_publisher`, the commonly used controllers from ros_control, octomap, diagnostics, `foxglove_msgs`, `ros_babel_fish`, `rosfmt`, `serial`, and `gtsam`. The package list is `packages.txt`. The pinned commits are in `upstream.repos`.
 
-Ubuntu 24.04 的官方 Noetic 源码有一批仓库编不过。这些仓库改用 [ROS-O](https://github.com/ros-o) 的 Noetic 延续补丁，提交号写在 `upstream.repos` 里。`ros_environment` 仍使用 Noetic 发行版，加载后 `ROS_DISTRO` 是 `noetic`。
+Some official Noetic repositories do not build on Ubuntu 24.04. Those repositories use the Noetic continuation patches from [ROS-O](https://github.com/ros-o), and the commit ids are in `upstream.repos`. `ros_environment` stays on the Noetic distribution, so `ROS_DISTRO` is `noetic` after the environment is loaded.
 
-Gazebo Classic 11 在子仓库 `gazebo`，也就是 [xgc2-gazebo](https://github.com/XGC-Team/xgc2-gazebo) 的 `noble-gz11`。`./bootstrap.sh` 把它装到 `/opt/ros/noetic/opt/gazebo`，不写入 `/usr`。`gazebo_ros` 不在 `packages.txt` 里，所以 Noetic 的编译不依赖这份 Gazebo。`source /opt/ros/noetic/setup.bash` 之后，`gazebo` 和 `gz` 来自这个前缀。不要和 ROS 2 的环境在同一个 shell 里一起加载。
+Gazebo Classic 11 is the `gazebo` submodule, the `noble-gz11` branch of [xgc2-gazebo](https://github.com/XGC-Team/xgc2-gazebo). `./bootstrap.sh` installs it to `/opt/ros/noetic/opt/gazebo` and does not write it under `/usr`. `gazebo_ros` is absent from `packages.txt`, so the Noetic build does not depend on this Gazebo. After `source /opt/ros/noetic/setup.bash`, `gazebo` and `gz` come from that prefix. Load this environment in its own shell, separate from a ROS 2 environment.
 
-下面这项不在默认构建里：
+The following is outside the default build:
 
-- `jsk_rviz_plugins` 会带上 `jsk_recognition`，在 24.04 上不能稳定编过。需要时把包名加进 `packages.txt`，再运行 `./bootstrap.sh refresh-pins`。
+- `jsk_rviz_plugins` pulls in `jsk_recognition`, which does not build reliably on 24.04. To include it, add the package name to `packages.txt` and run `./bootstrap.sh refresh-pins`.
 
-VRPN 使用源码包 `vrpn` 和 `vrpn_client_ros`。Ubuntu 24.04 没有 `libvrpn-dev`。
+VRPN uses the source packages `vrpn` and `vrpn_client_ros`. Ubuntu 24.04 has no `libvrpn-dev`.
 
-## 安装包
+## Packages
 
-Focal 上同角色的官方包叫 `ros-noetic-desktop-full`。Ubuntu 24.04 没有这个包。`main` 分支上的工作流会在干净的 Ubuntu 24.04 里并行编译本分支和 Gazebo Classic，打出 amd64 和 arm64 的 `xgc2-ros-noetic`。Gazebo Classic 在包内的 `/opt/ros/noetic/opt/gazebo`。
+On Focal the official package for this role is `ros-noetic-desktop-full`. Ubuntu 24.04 does not have that package. The workflow on `main` builds this branch and Gazebo Classic in parallel on a clean Ubuntu 24.04 and produces `xgc2-ros-noetic` for amd64 and arm64. Inside the package, Gazebo Classic is at `/opt/ros/noetic/opt/gazebo`.
 
-下载和本机架构一致的 deb 后：
+After downloading the deb that matches this machine:
 
 ```bash
-sudo apt install ./xgc2-ros-noetic_<版本>_<架构>.deb
+sudo apt install ./xgc2-ros-noetic_<version>_<arch>.deb
 source /opt/ros/noetic/setup.bash
 ```
 
-不要把 `source` 写进 `~/.bashrc`。本地克隆后运行 `./bootstrap.sh` 仍然可以，那是另一条路，不会被 CI 改写。
+Leave that `source` line out of `~/.bashrc`. Cloning locally and running `./bootstrap.sh` still works. That is a separate path, and CI leaves it alone.
 
-更新锁定文件：
+Update the lock files:
 
 ```bash
 ./bootstrap.sh refresh-pins
